@@ -1,3 +1,4 @@
+import random
 from unittest import TestCase, TestLoader, TextTestRunner, skipIf
 
 import sys
@@ -8,6 +9,7 @@ from contextlib import contextmanager
 import pickle
 import re
 
+from cobra.flux_analysis.gapfilling import ReactionLikelihoods
 from six import iteritems, StringIO
 
 try:
@@ -61,40 +63,44 @@ class TestProbabilisticAnnotation(TestCase):
     def setUp(self):
         pass
 
-    def test_schlama(self):
+    def test_probabilistic_gapfill(self):
         # Adapted from test_gapfilling in test.cobra.flux_analysis
         try:
             solver = get_solver_name(mip=True)
         except:
             self.skipTest("no MILP solver found")
+        reaction_likelihoods = ReactionLikelihoods()
         m = Model()
         m.add_metabolites(map(Metabolite, ["a", "b", "c"]))
         r = Reaction("EX_A")
+        reaction_likelihoods.put(r, random.random())  # likelihoods of model reactions shouldn't influence solution
         m.add_reaction(r)
         r.add_metabolites({m.metabolites.a: 1})
         r = Reaction("r1")
         m.add_reaction(r)
         r.add_metabolites({m.metabolites.b: -1, m.metabolites.c: 1})
+        reaction_likelihoods.put(r, random.random())  # likelihoods of model reactions shouldn't influence solution
         r = Reaction("DM_C")
         m.add_reaction(r)
         r.add_metabolites({m.metabolites.c: -1})
+        reaction_likelihoods.put(r, random.random())  # likelihoods of model reactions shouldn't influence solution
         r.objective_coefficient = 1
-
         U = Model()
         r = Reaction("a2b")
         U.add_reaction(r)
         r.build_reaction_from_string("a --> b", verbose=False)
+        reaction_likelihoods.put(r, 0.01)  # Should not be included despite being shortest-path solution
         r = Reaction("a2d")
         U.add_reaction(r)
         r.build_reaction_from_string("a --> d", verbose=False)
+        reaction_likelihoods.put(r, 0.9)  # Should be favored
         r = Reaction("d2b")
         U.add_reaction(r)
         r.build_reaction_from_string("d --> b", verbose=False)
+        reaction_likelihoods.put(r, 0.9)  # Should be favored
 
-        # TODO: ADD REACTION LIKELIHOODS CREATION HERE
-    
         # GrowMatch
-        result = gapfilling.growMatch(m, U)[0]
+        result = gapfilling.probabilistic(m, reaction_likelihoods.get_penalties(), U)[0]
         self.assertEqual(len(result), 2)
         self.assertEqual(result[0].id, "a2d")
         self.assertEqual(result[1].id, "d2b")

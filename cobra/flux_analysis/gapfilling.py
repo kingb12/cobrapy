@@ -34,7 +34,7 @@ class SUXModelMILP(Model):
         modify.convert_to_irreversible(Universal)
 
         for rxn in Universal.reactions:
-            rxn.notes["gapfilling_type"] = "Universal"
+            rxn.notes["gapfilling_type"] = rxn.id if rxn.id in penalties else "Universal"
 
         # SUX += Exchange (when exchange generator has been written)
         # For now, adding exchange reactions to Universal - could add to a new
@@ -140,12 +140,33 @@ class ReactionLikelihoods(Object):
         if reactions_dict is None:
             reactions_dict = dict()
         self.reactions = reactions_dict
+        self._check_rep()
 
     def get_penalties(self):
         penalties = dict()
         for rxn in self.reactions:
-            penalties[rxn] = max(1 - self.reactions[rxn], 0) * (1 if len(rxn.check_mass_balance()) == 0 else ReactionLikelihoods.EXCHANGE_PENALTY)
+            penalties[rxn.id] = max(1 - self.reactions[rxn], 0) * (1 if len(rxn.check_mass_balance()) == 0 else ReactionLikelihoods.EXCHANGE_PENALTY)
+        return penalties
 
+    def put(self, reaction, value):
+        if not isinstance(reaction, Reaction):
+            raise TypeError("reaction must be of type Reaction")
+        if float(value) > 1 or float(value) < 0:
+            raise ValueError("value must be a probability [0,1]")
+        self.reactions[reaction] = float(value)
+
+    def remove(self, reaction):
+        if not isinstance(reaction, Reaction):
+            raise TypeError("reaction must be of type Reaction")
+        del self.reactions[reaction]
+
+    def _check_rep(self):
+        for rxn in self.reactions:
+            if not isinstance(rxn, Reaction):
+                raise TypeError("reaction must be of type Reaction")
+            value = self.reactions[rxn]
+            if float(value) > 1 or float(value) < 0:
+                raise ValueError("value must be a probability [0,1]")
 
 
 def growMatch(model, Universal, dm_rxns=False, ex_rxns=False,
@@ -182,4 +203,13 @@ def SMILEY(model, metabolite_id, Universal,
     else:
         demand_reaction = SUX.reactions.get_by_id(demand_name)
     demand_reaction.lower_bound = SUX.threshold
+    return SUX.solve(**solver_parameters)
+
+
+def probabilistic(model, penalties, Universal, dm_rxns=False, ex_rxns=False, **solver_parameters):
+    """runs a probabilistic gap-fill modeled similarly to growMatch with adjusted weights"""
+    default_penalties = {"Universal": 1, "Exchange": 100, "Demand": 1}
+    default_penalties.update(penalties)
+    SUX = SUXModelMILP(model, Universal, dm_rxns=dm_rxns, ex_rxns=ex_rxns,
+                       penalties=default_penalties)
     return SUX.solve(**solver_parameters)
