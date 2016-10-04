@@ -1,6 +1,8 @@
 from __future__ import print_function
 
-from ..core import Model, Reaction, Metabolite
+import copy
+
+from ..core import Model, Reaction, Metabolite, Object
 from ..solvers import get_solver_name
 from ..manipulation import modify
 
@@ -127,6 +129,23 @@ class SUXModelMILP(Model):
                         print('    ', reaction, reaction.objective_coefficient)
 
         return used_reactions
+
+class ReactionLikelihoods(Object):
+    """
+    a class for reaction likelihoods from Probabilistic Annotation
+    """
+    EXCHANGE_PENALTY = 25
+
+    def __init__(self, reactions_dict=None):
+        if reactions_dict is None:
+            reactions_dict = dict()
+        self.reactions = reactions_dict
+
+    def get_penalties(self):
+        penalties = dict()
+        for rxn in self.reactions:
+            penalties[rxn] = max(1 - self.reactions[rxn], 0) * (1 if len(rxn.check_mass_balance()) == 0 else ReactionLikelihoods.EXCHANGE_PENALTY)
+
 
 
 def growMatch(model, Universal, dm_rxns=False, ex_rxns=False,
