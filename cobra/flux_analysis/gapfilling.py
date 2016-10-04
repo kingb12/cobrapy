@@ -19,7 +19,7 @@ class SUXModelMILP(Model):
         # store parameters
         self.threshold = threshold
         if penalties is None:
-            self.penalties = {"Universal": 1, "Exchange": 100, "Demand": 1}
+            self.penalties = {"Universal": 1, "Exchange": 100, "Demand": 1, "Reverse": 5}
         else:
             self.penalties = penalties
         # want to only operate on a copy of Universal so as not to mess up
@@ -32,7 +32,11 @@ class SUXModelMILP(Model):
         modify.convert_to_irreversible(Universal)
 
         for rxn in Universal.reactions:
-            rxn.notes["gapfilling_type"] = "Universal"
+            # Allows for optional supply of individual penalties to the solver
+            rxn.notes["gapfilling_type"] = rxn.id if penalties is not None and rxn.id in penalties else "Universal"
+            if rxn.notes["gapfilling_type"] == "Universal" and rxn.id.endswith('_reverse') and penalties is not None and "Reverse" in penalties:
+                rxn.notes["gapfilling_type"] = "Reverse"
+
 
         # SUX += Exchange (when exchange generator has been written)
         # For now, adding exchange reactions to Universal - could add to a new
