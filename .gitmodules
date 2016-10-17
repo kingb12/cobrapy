@@ -1,0 +1,3 @@
+[submodule "ProbAnno-Standalone"]
+	path = ProbAnno-Standalone
+	url = https://github.com/tfarrah/ProbAnno-Standalone.git

@@ -2,7 +2,7 @@ from __future__ import print_function
 
 import copy
 
-from ..core import Model, Reaction, Metabolite, Object
+from ..core import Model, Reaction, Metabolite, Object, DictList
 from ..solvers import get_solver_name
 from ..manipulation import modify
 
@@ -34,7 +34,7 @@ class SUXModelMILP(Model):
         modify.convert_to_irreversible(Universal)
 
         for rxn in Universal.reactions:
-            rxn.notes["gapfilling_type"] = rxn.id if rxn.id in penalties else "Universal"
+            rxn.notes["gapfilling_type"] = rxn.id if penalties is not None and rxn.id in penalties else "Universal"
 
         # SUX += Exchange (when exchange generator has been written)
         # For now, adding exchange reactions to Universal - could add to a new
@@ -59,7 +59,7 @@ class SUXModelMILP(Model):
                 Universal.add_reaction(rxn)
 
         Model.add_reactions(self, model.copy().reactions)
-        Model.add_reactions(self, Universal.reactions)
+        Model.add_reactions(self, [r for r in Universal.reactions if not model.reactions.has_id(r.id)])
 
         # all reactions with an index < len(model.reactions) were original
         self.original_reactions = self.reactions[:len(model.reactions)]
@@ -142,6 +142,18 @@ class ReactionLikelihoods(Object):
         self.reactions = reactions_dict
         self._check_rep()
 
+    def load(self, reaction_probs, universal):
+        """
+        Load reactions from probabilistic annotation output that are also in universal
+        :param universal: a model holding a database of reactions for gapfilling
+        :param reaction_probs: dict(reaction_id -> probability) to encode
+        :return: None
+        """
+        for rxn_id in reaction_probs:
+            if universal.reactions.has_id(rxn_id):
+                reaction = universal.reactions.get_by_id(rxn_id)
+                self.reactions[reaction] = reaction_probs[rxn_id]
+
     def get_penalties(self):
         penalties = dict()
         for rxn in self.reactions:
@@ -159,6 +171,9 @@ class ReactionLikelihoods(Object):
         if not isinstance(reaction, Reaction):
             raise TypeError("reaction must be of type Reaction")
         del self.reactions[reaction]
+
+    def get_likelihoods(self, reaction_list):
+        return dict([(r, self.reactions[r] if r in self.reactions else None) for r in reaction_list])
 
     def _check_rep(self):
         for rxn in self.reactions:
