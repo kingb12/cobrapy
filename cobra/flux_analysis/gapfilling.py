@@ -1,8 +1,6 @@
 from __future__ import print_function
 
-import copy
-
-from ..core import Model, Reaction, Metabolite, Object, DictList
+from ..core import Model, Reaction, Metabolite
 from ..solvers import get_solver_name
 from ..manipulation import modify
 
@@ -34,6 +32,7 @@ class SUXModelMILP(Model):
         modify.convert_to_irreversible(Universal)
 
         for rxn in Universal.reactions:
+            # Allows for optional supply of individual penalties to the solver
             rxn.notes["gapfilling_type"] = rxn.id if penalties is not None and rxn.id in penalties else "Universal"
 
         # SUX += Exchange (when exchange generator has been written)
@@ -59,7 +58,7 @@ class SUXModelMILP(Model):
                 Universal.add_reaction(rxn)
 
         Model.add_reactions(self, model.copy().reactions)
-        Model.add_reactions(self, [r for r in Universal.reactions if not model.reactions.has_id(r.id)])
+        Model.add_reactions(self, Universal.reactions)
 
         # all reactions with an index < len(model.reactions) were original
         self.original_reactions = self.reactions[:len(model.reactions)]
@@ -130,59 +129,6 @@ class SUXModelMILP(Model):
 
         return used_reactions
 
-class ReactionLikelihoods(Object):
-    """
-    a class for reaction likelihoods from Probabilistic Annotation
-    """
-    EXCHANGE_PENALTY = 25
-
-    def __init__(self, reactions_dict=None):
-        if reactions_dict is None:
-            reactions_dict = dict()
-        self.reactions = reactions_dict
-        self._check_rep()
-
-    def load(self, reaction_probs, universal):
-        """
-        Load reactions from probabilistic annotation output that are also in universal
-        :param universal: a model holding a database of reactions for gapfilling
-        :param reaction_probs: dict(reaction_id -> probability) to encode
-        :return: None
-        """
-        for rxn_id in reaction_probs:
-            if universal.reactions.has_id(rxn_id):
-                reaction = universal.reactions.get_by_id(rxn_id)
-                self.reactions[reaction] = reaction_probs[rxn_id]
-
-    def get_penalties(self):
-        penalties = dict()
-        for rxn in self.reactions:
-            penalties[rxn.id] = max(1 - self.reactions[rxn], 0) * (1 if len(rxn.check_mass_balance()) == 0 else ReactionLikelihoods.EXCHANGE_PENALTY)
-        return penalties
-
-    def put(self, reaction, value):
-        if not isinstance(reaction, Reaction):
-            raise TypeError("reaction must be of type Reaction")
-        if float(value) > 1 or float(value) < 0:
-            raise ValueError("value must be a probability [0,1]")
-        self.reactions[reaction] = float(value)
-
-    def remove(self, reaction):
-        if not isinstance(reaction, Reaction):
-            raise TypeError("reaction must be of type Reaction")
-        del self.reactions[reaction]
-
-    def get_likelihoods(self, reaction_list):
-        return dict([(r, self.reactions[r] if r in self.reactions else None) for r in reaction_list])
-
-    def _check_rep(self):
-        for rxn in self.reactions:
-            if not isinstance(rxn, Reaction):
-                raise TypeError("reaction must be of type Reaction")
-            value = self.reactions[rxn]
-            if float(value) > 1 or float(value) < 0:
-                raise ValueError("value must be a probability [0,1]")
-
 
 def growMatch(model, Universal, dm_rxns=False, ex_rxns=False,
               penalties=None, **solver_parameters):
@@ -218,13 +164,4 @@ def SMILEY(model, metabolite_id, Universal,
     else:
         demand_reaction = SUX.reactions.get_by_id(demand_name)
     demand_reaction.lower_bound = SUX.threshold
-    return SUX.solve(**solver_parameters)
-
-
-def probabilistic(model, penalties, Universal, dm_rxns=False, ex_rxns=False, **solver_parameters):
-    """runs a probabilistic gap-fill modeled similarly to growMatch with adjusted weights"""
-    default_penalties = {"Universal": 1, "Exchange": 100, "Demand": 1}
-    default_penalties.update(penalties)
-    SUX = SUXModelMILP(model, Universal, dm_rxns=dm_rxns, ex_rxns=ex_rxns,
-                       penalties=default_penalties)
     return SUX.solve(**solver_parameters)
